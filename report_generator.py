@@ -1,59 +1,79 @@
-
-
 import os
-import ollama # Replaces openai
+import ollama
 import jinja2
 import pandas as pd
 
 # Define your Custom Template (HTML/CSS for Figma-like quality)
+# Note: We use standard quotes and no 'f' prefix so Python doesn't try to parse the { }
 TEMPLATE_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
 <style>
-    body { font-family: 'Inter', sans-serif; color: #333; padding: 40px; max-width: 800px; margin: auto; }
-    h1 { color: #2563eb; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
-    .stat-box { background: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: inline-block; width: 30%; text-align: center;}
-    .stat-value { font-size: 24px; font-weight: bold; color: #111827; }
-    .stat-label { font-size: 12px; color: #6b7280; text-transform: uppercase; }
-    .warning-section { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin-top: 20px; }
-    .insight-text { line-height: 1.6; margin-top: 20px; }
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #F3F3EE; color: #1B1F3B; padding: 40px; }
+    .report-container { 
+        background: #FFFFFF; 
+        border: 3px solid #1B1F3B; 
+        box-shadow: 14px 14px 0 #FF48B0; 
+        padding: 40px; 
+        max-width: 900px; 
+        margin: 0 auto;
+    }
+    h1 { font-size: 3rem; letter-spacing: -0.04em; line-height: 1; margin-bottom: 30px; color: #1B1F3B; }
+    h2 { font-size: 2rem; letter-spacing: -0.03em; border-bottom: 3px solid #FFE800; padding-bottom: 10px; margin-top: 40px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 30px 0; }
+    .stat-card { 
+        background: #F3F3EE; 
+        border: 2px solid #1B1F3B; 
+        padding: 20px; 
+        border-radius: 12px;
+    }
+    .stat-label { font-size: 0.9rem; text-transform: uppercase; font-weight: 700; color: #0078BF; }
+    .stat-value { font-size: 1.8rem; font-weight: 700; color: #1B1F3B; margin-top: 5px; }
+    .audit-box { 
+        background: #FFE800; 
+        border: 2px solid #1B1F3B; 
+        padding: 20px; 
+        border-radius: 12px; 
+        margin-top: 30px;
+    }
+    p { line-height: 1.6; font-size: 1.1rem; }
 </style>
 </head>
 <body>
-    <h1>{{ title }}</h1>
-    <div class="stats-container">
-        {% for stat_name, stat_val in stats.items() %}
-        <div class="stat-box">
-            <div class="stat-value">{{ stat_val }}</div>
-            <div class="stat-label">{{ stat_name.replace('_', ' ') }}</div>
-        </div>
-        {% endfor %}
-    </div>
-    
-    <div class="insight-text">
-        {{ llm_analysis }}
-    </div>
-
-    {% if warnings %}
-    <div class="warning-section">
-        <strong>⚠️ Data Quality Notes:</strong>
-        <ul>
-            {% for warning in warnings %}
-            <li>{{ warning }}</li>
+    <div class="report-container">
+        <h1>{{ title }}</h1>
+        
+        <div class="stat-grid">
+            {% for stat_name, stat_val in stats.items() %}
+            <div class="stat-card">
+                <div class="stat-label">{{ stat_name.replace('_', ' ') }}</div>
+                <div class="stat-value">{{ stat_val }}</div>
+            </div>
             {% endfor %}
-        </ul>
+        </div>
+
+        <h2>Executive Summary</h2>
+        <p>{{ llm_analysis }}</p>
+
+        {% if warnings %}
+        <div class="audit-box">
+            <strong>⚠️ Data Quality Notes:</strong>
+            <ul style="margin-top: 10px; padding-left: 20px;">
+                {% for warning in warnings %}
+                <li>{{ warning }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
 </body>
 </html>
 """
 
 def generate_report_artifacts(clean_df, audit_log, summary_stats):
-    """Calls Local LLM (Ollama) and renders 3 artifacts."""
+    """Calls Local LLM (Ollama) and renders artifacts with Riso styling."""
     
-    # 1. Construct Context-Aware Prompt
-    # We format the stats nicely so the LLM can read them easily
     stats_formatted = "\n".join([f"- {k}: {v}" for k, v in summary_stats.items()])
     warnings_formatted = "\n".join(audit_log) if audit_log else "None"
 
@@ -70,19 +90,12 @@ def generate_report_artifacts(clean_df, audit_log, summary_stats):
     """
     
     try:
-        # 2. Call Local LLM
-        response = ollama.chat(model='llama3.2', messages=[
-            {
-                'role': 'user',
-                'content': prompt,
-            },
-        ])
+        response = ollama.chat(model='llama3.2', messages=[{'role': 'user', 'content': prompt}])
         llm_text = response['message']['content']
-        
     except Exception as e:
-        llm_text = f"Error calling Local LLM: {str(e)}. Please ensure Ollama is running and the model is pulled."
+        llm_text = f"Error calling Local LLM: {str(e)}."
 
-    # 3. Render Main Report (HTML String)
+    # Use Jinja2 to safely render the template
     template = jinja2.Template(TEMPLATE_HTML)
     html_report = template.render(
         title="Monthly Performance Analysis",
@@ -91,16 +104,7 @@ def generate_report_artifacts(clean_df, audit_log, summary_stats):
         warnings=audit_log
     )
     
-    # 4. Prepare Secondary Artifacts
-    # Artifact 2: Clean CSV Download
     csv_data = clean_df.to_csv(index=False)
-    
-    # Artifact 3: Error/Audit README (Markdown)
-    readme_content = "# Data Audit Log\n\n"
-    if audit_log:
-        for log in audit_log:
-            readme_content += f"- {log}\n"
-    else:
-        readme_content += "- No anomalies detected.\n"
+    readme_content = "# Data Audit Log\n\n" + "\n".join([f"- {log}" for log in audit_log])
         
     return html_report, csv_data, readme_content
