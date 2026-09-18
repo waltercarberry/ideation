@@ -1,0 +1,8 @@
+streamlit>=1.39
+pandas>=2.0
+numpy
+plotly
+matplotlib
+python-docx
+pydantic>=2
+ollama>=0.4
